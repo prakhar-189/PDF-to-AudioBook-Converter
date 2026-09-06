@@ -1,0 +1,41 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# --- virtual environments ---
+# Both spellings: there is already a 26 MB venv/ in this folder.
+venv/
+.venv/
+env/
+ENV/
+
+# --- generated audio ---
+# The CLI writes to "<pdf name> (audiobook)/", the web UI to audiobooks/.
+audiobooks/
+*.mp3
+*.wav
+*.m4a
+*.m4b
+*.part
+*.m3u
+.audiobook.json
+
+# --- source books ---
+# PDFs are large and usually someone else's copyright, so keep them out of
+# version control. To commit a deliberate sample: git add -f sample.pdf
+*.pdf
+
+# --- web UI ---
+.streamlit/secrets.toml
+*.zip
+
+# --- editors and OS clutter ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
