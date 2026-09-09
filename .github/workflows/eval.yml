@@ -1,0 +1,46 @@
+name: eval
+
+# The accuracy gate. eval.py builds its own PDFs with known contents, so this
+# needs no fixtures and no network - it fails the build if extraction accuracy
+# drops below 95%, or if parallel synthesis stops writing chunks in order.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  accuracy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        # Streamlit is only needed by app.py, and pyttsx3 drives OS voices that
+        # a CI runner does not have. Neither is used by eval.py, so neither is
+        # installed - it keeps the job to a few seconds.
+        run: |
+          python -m pip install --upgrade pip
+          pip install "PyMuPDF>=1.24.0" "edge-tts>=7.0.0" "tqdm>=4.66.0"
+
+      - name: Accuracy and concurrency gate
+        # No --audio: that calls Microsoft's voice service, and a flaky network
+        # would fail the build for reasons that have nothing to do with the
+        # code. Run `python eval.py --audio` locally when touching synthesis.
+        run: python eval.py
+
+      - name: Check the CLI starts
+        run: |
+          python -m pdf_audiobook --help > /dev/null
+          echo "CLI OK"
