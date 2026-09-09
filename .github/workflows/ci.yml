@@ -28,6 +28,12 @@ jobs:
 
   test:
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # bash on every OS. The default shell on windows-latest is PowerShell,
+        # where a Unix-ism like `> /dev/null` fails with a directory error -
+        # and the point of the Windows job is to test the code, not the YAML.
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
