@@ -1,0 +1,30 @@
+# Keep the build context small and free of anything secret or generated.
+.git
+.github
+venv
+.venv
+env
+ENV
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# generated audio and source books
+audiobooks/
+*.mp3
+*.wav
+*.m4a
+*.m4b
+*.part
+*.m3u
+*.pdf
+.audiobook.json
+
+.streamlit/secrets.toml
+.vscode
+.idea
+.DS_Store
+Thumbs.db
