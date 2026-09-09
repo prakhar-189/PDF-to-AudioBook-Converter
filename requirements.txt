@@ -1,0 +1,38 @@
+# pip install -r requirements.txt
+#
+# This file is the plain-pip route and covers the CLI and the web UI. The
+# packaged install is the other one, and it is what the API and the tests use:
+#
+#     pip install -e .              core + CLI
+#     pip install -e ".[ui]"        adds the Streamlit page
+#     pip install -e ".[api]"       adds the FastAPI service
+#     pip install -e ".[api,dev]"   adds pytest and ruff
+#
+# Developed and tested on Python 3.11.9 (Windows). Needs 3.9 or newer, for
+# str.removesuffix. Version floors below are minimums; the comment after each
+# is the version this project was actually verified against.
+
+# --- core: needed by the CLI and by eval.py ---
+
+# PDF text extraction and the page geometry used to spot running headers.
+PyMuPDF>=1.24.0        # verified 1.28.2
+
+# Neural voices: free, no API key, needs an internet connection.
+# The 6.x line is pinned out deliberately - Microsoft moved the endpoint and
+# older releases fail with an authentication error rather than a clear message.
+edge-tts>=7.0.0        # verified 7.2.8
+
+# Offline voices via the OS speech engine, for --engine offline.
+# On Windows this pulls in comtypes and pywin32 by itself.
+pyttsx3>=2.90          # verified 2.99
+
+# Progress bars in the CLI.
+tqdm>=4.66.0           # verified 4.67.3
+
+# --- optional: only needed for the drag-and-drop web UI ---
+#
+#     streamlit run app.py
+#
+# The CLI and eval.py work without this. Skip it if you only use the command
+# line - it is by far the largest dependency here.
+streamlit>=1.31.0      # verified 1.63.0
