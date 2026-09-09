@@ -1,0 +1,30 @@
+# Both front ends over the same converter:
+#
+#   docker compose up api     REST service on http://localhost:8000/docs
+#   docker compose up ui      drag-and-drop page on http://localhost:8501
+#
+# They share one image and differ only in the command.
+
+services:
+  api:
+    build: .
+    image: pdf-audiobook:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      # Finished audio lands here instead of vanishing with the container.
+      - ./audiobooks:/home/audiobook/audiobooks
+    restart: unless-stopped
+
+  ui:
+    build: .
+    image: pdf-audiobook:latest
+    command: ["streamlit", "run", "app.py",
+              "--server.address=0.0.0.0", "--server.port=8501"]
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./app.py:/home/audiobook/app.py:ro
+      - ./audiobooks:/home/audiobook/audiobooks
+    working_dir: /home/audiobook
+    restart: unless-stopped
