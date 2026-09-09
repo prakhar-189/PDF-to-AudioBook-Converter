@@ -5,6 +5,10 @@ __pycache__/
 build/
 dist/
 
+# --- tool caches ---
+.pytest_cache/
+.ruff_cache/
+
 # --- virtual environments ---
 # Both spellings: there is already a 26 MB venv/ in this folder.
 venv/
