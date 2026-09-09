@@ -26,6 +26,8 @@ BODY = (
 
 
 def _draw(page, lines, top=90, size=11, leading=16):
+    """Write lines onto a page at fixed leading, imitating typeset prose."""
+
     y = top
     for line in lines:
         page.insert_text((72, y), line, fontsize=size)
@@ -39,6 +41,7 @@ def novel_pdf(tmp_path: Path) -> Path:
     Every page carries a running header, a footer and a page number, so
     anything that reads this PDF has to strip them to get clean text.
     """
+
     path = tmp_path / "novel.pdf"
     doc = fitz.open()
     toc = []
@@ -75,6 +78,7 @@ def novel_pdf(tmp_path: Path) -> Path:
 @pytest.fixture
 def plain_pdf(tmp_path: Path) -> Path:
     """Four pages, no outline at all — the page-chunking path."""
+
     path = tmp_path / "plain.pdf"
     doc = fitz.open()
     for _ in range(4):
@@ -88,6 +92,7 @@ def plain_pdf(tmp_path: Path) -> Path:
 @pytest.fixture
 def wav_parts(tmp_path: Path) -> list[Path]:
     """Three tiny WAV files sharing a format, for the merge tests."""
+
     parts = []
     for i in range(3):
         path = tmp_path / f"part{i}.wav"

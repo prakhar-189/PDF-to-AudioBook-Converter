@@ -25,16 +25,22 @@ from pdf_audiobook.extract import Chapter
 
 
 class StubEngine:
-    """Writes a deterministic file instead of calling Microsoft."""
+    """Writes a deterministic file instead of calling Microsoft.
+
+    Records every text it was handed, which is how the tests below assert on
+    what was re-synthesised and what was correctly skipped.
+    """
 
     ext = "mp3"
     name = "stub"
 
     def __init__(self, **kwargs):
+        """Accepts and ignores whatever the real engines take."""
         self.kwargs = kwargs
         self.calls: list[str] = []
 
     def synthesize(self, text, out_path, on_progress=None):
+        """Write recognisable bytes and report a single step of progress."""
         self.calls.append(text)
         out_path.write_bytes(b"\xff\xfb" + text.encode("utf-8")[:64])
         if on_progress:
@@ -44,12 +50,16 @@ class StubEngine:
 
 @pytest.fixture
 def stub_engine(monkeypatch):
+    """Swap the real engine factory for the stub, for one test."""
+
     engine = StubEngine()
     monkeypatch.setattr(audiobook, "get_engine", lambda name, **kw: engine)
     return engine
 
 
 class TestSafeName:
+    """Chapter titles turned into filenames Windows will accept."""
+
     @pytest.mark.parametrize("bad", ['a<b>c:d"e/f\\g|h?i*j'])
     def test_strips_characters_windows_rejects(self, bad):
         out = safe_name(bad)
@@ -69,6 +79,8 @@ class TestSafeName:
 
 
 class TestManifest:
+    """Reading the record of what has already been converted."""
+
     def test_missing_manifest_reads_as_empty(self, tmp_path):
         assert load_manifest(tmp_path) == {"chapters": {}}
 
@@ -80,11 +92,20 @@ class TestManifest:
 
 
 class TestIsFinished:
+    """When a chapter counts as done.
+
+    Deliberately strict: a stale file from a different voice or page range is
+    not 'done', because calling it done would overstate progress and poison a
+    merged single-file export.
+    """
+
     @pytest.fixture
     def chapter(self):
+        """A three-word chapter, enough to have a word count that can change."""
         return Chapter(1, "One", 0, 1, text="one two three")
 
     def _manifest(self, chapter, **overrides):
+        """A manifest recording this chapter as done, with fields overridable."""
         record = {"words": chapter.word_count, "voice": "aria"}
         record.update(overrides)
         return {"chapters": {str(chapter.index): record}}
@@ -118,6 +139,8 @@ class TestIsFinished:
 
 
 class TestConvert:
+    """Conversion end to end, against the stub engine."""
+
     def test_writes_one_file_per_chapter_and_a_playlist(self, novel_pdf, tmp_path, stub_engine):
         out = tmp_path / "out"
         result = convert(novel_pdf, out, engine="stub", voice="aria")
@@ -215,6 +238,8 @@ class TestConvert:
 
 
 class TestDefaultOutDir:
+    """Where output lands when the caller does not say."""
+
     def test_sits_next_to_the_pdf(self, tmp_path):
         pdf = tmp_path / "My Book.pdf"
         assert default_out_dir(pdf) == tmp_path / "My Book (audiobook)"

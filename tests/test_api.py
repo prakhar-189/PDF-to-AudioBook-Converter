@@ -19,13 +19,17 @@ from pdf_audiobook import api, audiobook
 
 
 class StubEngine:
+    """Stand-in speech engine, so these tests never leave the machine."""
+
     ext = "mp3"
     name = "stub"
 
     def __init__(self, **kwargs):
+        """Accepts and ignores the real engine's options."""
         pass
 
     def synthesize(self, text, out_path, on_progress=None):
+        """Write recognisable bytes instead of calling the voice service."""
         out_path.write_bytes(b"\xff\xfb" + text.encode("utf-8")[:32])
         if on_progress:
             on_progress(1, 1)
@@ -41,15 +45,18 @@ def offline(monkeypatch):
 
 @pytest.fixture
 def client():
+    """A TestClient over the app, driving it without a running server."""
     return TestClient(api.app)
 
 
 def _upload(pdf):
+    """Shape a PDF as the multipart payload the endpoints expect."""
     return {"file": (pdf.name, pdf.read_bytes(), "application/pdf")}
 
 
 def _wait(client, job_id, timeout=30.0):
     """Poll until the job leaves a running state."""
+
     deadline = time.time() + timeout
     while time.time() < deadline:
         body = client.get(f"/jobs/{job_id}").json()
@@ -60,6 +67,8 @@ def _wait(client, job_id, timeout=30.0):
 
 
 class TestOps:
+    """Health, metrics and the OpenAPI schema."""
+
     def test_healthz(self, client):
         body = client.get("/healthz").json()
         assert body["status"] == "ok"
@@ -75,6 +84,8 @@ class TestOps:
 
 
 class TestEstimate:
+    """The inline endpoint - answers without synthesising anything."""
+
     def test_returns_the_chapter_breakdown(self, client, novel_pdf):
         response = client.post("/estimate", files=_upload(novel_pdf))
         assert response.status_code == 200
@@ -97,6 +108,7 @@ class TestEstimate:
 
     def test_estimating_never_synthesises(self, client, novel_pdf, monkeypatch):
         def explode(*a, **kw):
+            """Fails loudly if /estimate ever reaches the converter."""
             raise AssertionError("estimate must not call the speech engine")
 
         monkeypatch.setattr(api, "convert", explode)
@@ -119,6 +131,8 @@ class TestEstimate:
 
 
 class TestUploadGuards:
+    """What the service refuses, and with which status code."""
+
     def test_rejects_a_non_pdf(self, client):
         response = client.post(
             "/estimate", files={"file": ("book.txt", b"hello", "text/plain")}
@@ -141,6 +155,8 @@ class TestUploadGuards:
 
 
 class TestJobLifecycle:
+    """Queue, poll, download, delete - the path a real client walks."""
+
     def test_create_returns_202_and_an_id(self, client, novel_pdf):
         response = client.post("/jobs", files=_upload(novel_pdf), data={"engine": "offline"})
         assert response.status_code == 202
@@ -203,6 +219,7 @@ class TestJobLifecycle:
 
     def test_a_failing_conversion_is_reported_not_raised(self, client, novel_pdf, monkeypatch):
         def explode(*a, **kw):
+            """Stands in for the voice service being unreachable."""
             raise RuntimeError("the voice service is down")
 
         monkeypatch.setattr(api, "convert", explode)
@@ -217,6 +234,8 @@ class TestJobLifecycle:
 
 
 class TestValidation:
+    """Bad input rejected before any work is queued."""
+
     def test_unknown_job_is_404(self, client):
         assert client.get("/jobs/deadbeef").status_code == 404
 

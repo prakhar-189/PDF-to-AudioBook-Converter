@@ -47,6 +47,12 @@ st.set_page_config(page_title="PDF to Audiobook", page_icon="🎧", layout="cent
 
 @st.cache_data(show_spinner=False)
 def all_edge_voices() -> list[str]:
+    """Every neural voice, cached for the session.
+
+    Falls back to the hand-picked shortlist when offline, so the page still
+    renders a usable voice picker with no internet.
+    """
+
     try:
         return [v["ShortName"] for v in EdgeEngine.list_voices()]
     except Exception:  # noqa: BLE001 - offline or blocked: fall back to the built-in list
@@ -55,6 +61,8 @@ def all_edge_voices() -> list[str]:
 
 @st.cache_data(show_spinner=False)
 def system_voices() -> list[str]:
+    """Voices installed on this machine, cached. Empty if none are."""
+
     try:
         return [v["ShortName"] for v in OfflineEngine.list_voices()]
     except Exception:  # noqa: BLE001 - no OS speech engine installed: offer nothing
@@ -70,6 +78,7 @@ def save_upload(upload) -> Path:
     a rename is atomic, so a reader sees either the old file or the new one,
     never half of one.
     """
+
     folder = Path(tempfile.gettempdir()) / "pdf_audiobook_uploads"
     folder.mkdir(exist_ok=True)
     target = folder / upload.name
@@ -94,6 +103,8 @@ def read_book(path: str, size: int, first_page: int, last_page: int | None,
 
 
 def pretty_size(path: Path) -> str:
+    """Bytes as something a person reads, for the download button."""
+
     mb = path.stat().st_size / 1e6
     return f"{mb / 1000:.1f} GB" if mb >= 1000 else f"{mb:.0f} MB"
 
@@ -222,6 +233,7 @@ if go:
     total = len(todo) or 1
 
     def on_event(kind: str, payload: dict) -> None:
+        """Drive the progress bar and status line from conversion events."""
         if kind in ("chapter", "skip"):
             status.caption(f"Reading: {payload['chapter'].title}")
         elif kind == "chunk":

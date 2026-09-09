@@ -19,6 +19,8 @@ from pdf_audiobook.extract import (
 
 
 class TestNormalise:
+    """Typographic characters folded down to what a speech engine can read."""
+
     def test_expands_ligatures(self):
         assert _normalise("the ﬁrst ﬂame") == "the first flame"
 
@@ -34,6 +36,12 @@ class TestNormalise:
 
 
 class TestRunningHeadDetection:
+    """The three signals that must agree before text is discarded.
+
+    This is the area the eval harness caught a real bug in: body prose landing
+    at a page edge was being deleted as furniture.
+    """
+
     def test_fingerprint_collapses_digits(self):
         assert _fingerprint("Page 12") == _fingerprint("Page 87")
 
@@ -63,6 +71,8 @@ class TestRunningHeadDetection:
 
 
 class TestPatterns:
+    """The regexes for page numbers and citation markers."""
+
     @pytest.mark.parametrize("line", ["12", " 47 ", "- 12 -", "| 47", "iv 12"])
     def test_page_numbers_match(self, line):
         assert PAGE_NUMBER_RE.match(line)
@@ -77,6 +87,8 @@ class TestPatterns:
 
 
 class TestCleanPage:
+    """One raw page in, speakable prose out."""
+
     def test_removes_furniture_and_rejoins_hyphens(self):
         heads = {_fingerprint("A Test Book")}
         raw = (
@@ -111,6 +123,8 @@ class TestCleanPage:
 
 
 class TestLoadPdf:
+    """End to end over generated PDFs: outline, page ranges, error paths."""
+
     def test_uses_the_embedded_outline(self, novel_pdf):
         book = load_pdf(novel_pdf)
         assert book.used_toc
@@ -153,6 +167,8 @@ class TestLoadPdf:
 
 
 class TestModels:
+    """Word counts and time estimates rolling up from chapters to book."""
+
     def test_word_and_time_estimates_roll_up(self):
         book = Book(title="t", author="a", page_count=2, chapters=[
             Chapter(1, "One", 0, 1, text="one two three"),

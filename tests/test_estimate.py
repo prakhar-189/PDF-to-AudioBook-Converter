@@ -15,6 +15,8 @@ from pdf_audiobook.estimate import (
 
 
 class TestAudioSeconds:
+    """How long the finished recording plays for."""
+
     def test_uses_the_measured_words_per_minute(self):
         assert audio_seconds(180) == pytest.approx(60.0)
 
@@ -26,6 +28,8 @@ class TestAudioSeconds:
 
 
 class TestBuildSeconds:
+    """How long you wait while it is generated."""
+
     def test_explicit_speedup_wins(self):
         # 60s of audio at 10x real time is 6s of waiting.
         assert build_seconds(180, speedup=10.0) == pytest.approx(6.0)
@@ -49,6 +53,12 @@ class TestBuildSeconds:
 
 
 class TestObservedSpeedup:
+    """Self-calibration, and the guards on what counts as evidence.
+
+    A run at a different engine or worker count says nothing about this one,
+    so folding it in would make every later estimate worse, not better.
+    """
+
     def test_none_until_there_is_enough_evidence(self):
         manifest = {"chapters": {"1": {"words": 100, "seconds": 10.0}}}
         assert observed_speedup(manifest) is None
@@ -85,6 +95,8 @@ class TestObservedSpeedup:
 
 
 class TestHumanise:
+    """Durations phrased the way a person would say them."""
+
     @pytest.mark.parametrize(
         ("seconds", "expected"),
         [
@@ -101,6 +113,8 @@ class TestHumanise:
 
 
 class TestDescribe:
+    """The sentence shown under every Convert button."""
+
     def test_leads_with_the_wait_then_the_payoff(self):
         line = describe(34_078)
         assert line.startswith("Approximately")

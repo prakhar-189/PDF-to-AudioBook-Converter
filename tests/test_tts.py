@@ -21,6 +21,8 @@ from pdf_audiobook.tts import (
 
 
 class TestChunkText:
+    """Splitting text for synthesis: nothing lost, nothing split mid-sentence."""
+
     def test_empty_text_yields_nothing(self):
         assert chunk_text("") == []
         assert chunk_text("   \n\n  ") == []
@@ -62,6 +64,8 @@ class TestChunkText:
 
 
 class TestRateParsing:
+    """The "+10%" / "-5Hz" vocabulary both engines accept."""
+
     @pytest.mark.parametrize(
         ("value", "unit", "expected"),
         [
@@ -80,6 +84,13 @@ class TestRateParsing:
 
 
 class TestRateLimitDetection:
+    """Telling a refusal apart from an ordinary failure.
+
+    Getting this wrong in either direction is costly: miss a refusal and we
+    keep hammering a service that already said no; treat every dropped
+    connection as one and the worker pool shrinks to nothing.
+    """
+
     def test_reads_a_status_attribute(self):
         exc = Exception("nope")
         exc.status = 429
@@ -104,11 +115,14 @@ class TestRateLimitDetection:
 
 
 class TestAdaptiveLimiter:
+    """Permits retired permanently on push-back, never below the floor."""
+
     def test_starts_at_the_requested_limit(self):
         assert AdaptiveLimiter(4).active_limit == 4
 
     def test_back_off_retires_a_permit_permanently(self):
         async def scenario():
+            """Back off once and report the surviving width."""
             limiter = AdaptiveLimiter(4)
             await limiter.back_off()
             return limiter.active_limit
@@ -117,6 +131,7 @@ class TestAdaptiveLimiter:
 
     def test_never_shrinks_below_the_minimum(self):
         async def scenario():
+            """Back off far more often than there are permits to give up."""
             limiter = AdaptiveLimiter(3, minimum=1)
             for _ in range(10):
                 await limiter.back_off()
@@ -126,11 +141,13 @@ class TestAdaptiveLimiter:
 
     def test_acts_as_a_semaphore(self):
         async def scenario():
+            """Run more workers than permits and record the peak overlap."""
             limiter = AdaptiveLimiter(2)
             peak = 0
             live = 0
 
             async def worker():
+                """Hold a permit briefly, tracking how many are held at once."""
                 nonlocal peak, live
                 async with limiter:
                     live += 1
@@ -145,6 +162,8 @@ class TestAdaptiveLimiter:
 
 
 class TestMerging:
+    """Joining audio without ffmpeg - WAV by header, MP3 by byte append."""
+
     def test_merged_wav_holds_every_frame(self, wav_parts, tmp_path):
         out = tmp_path / "joined.wav"
         merge_wavs(wav_parts, out)
@@ -178,6 +197,8 @@ class TestMerging:
 
 
 class TestEngineFactory:
+    """The single seam every caller goes through to get a voice."""
+
     def test_returns_the_named_engine(self):
         assert get_engine("edge").name == "edge"
         assert get_engine("offline").name == "offline"

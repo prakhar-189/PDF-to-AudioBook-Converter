@@ -24,6 +24,12 @@ RECOMMENDED = [
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Every command-line flag, in the order a person meets them.
+
+    Kept separate from `main()` so `--help` can be rendered, and the flags
+    inspected, without running a conversion.
+    """
+
     p = argparse.ArgumentParser(
         prog="pdf-audiobook",
         description="Turn a PDF into an audiobook you can listen to anywhere.",
@@ -88,6 +94,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def parse_pages(spec: str | None) -> tuple[int, int | None]:
+    """Turn "12-340", "12-" or "340" into (first_page, last_page).
+
+    1-based and inclusive, matching the page numbers a reader sees in a PDF
+    viewer rather than the 0-based indices used internally.
+    """
     if not spec:
         return 1, None
     spec = spec.strip()
@@ -124,6 +135,8 @@ def parse_chapters(spec: str | None) -> set[int] | None:
 
 
 def show_voices(engine: str, language: str) -> int:
+    """Print the available narrators for `--list-voices`."""
+
     cls = get_engine(engine, voice="en-US-AriaNeural").__class__
     voices = cls.list_voices(language or None)
     if not voices:
@@ -143,6 +156,12 @@ def show_voices(engine: str, language: str) -> int:
 
 def preview(args, first_page: int, last_page: int | None,
             wanted: set[int] | None = None) -> int:
+    """`--dry-run`: the chapter list and total hours, synthesising nothing.
+
+    The cheap look before committing to a conversion that may run for hours.
+    Chapters already converted are marked, so it doubles as a progress report.
+    """
+
     book = load_pdf(args.pdf, first_page=first_page, last_page=last_page,
                     pages_per_part=args.pages_per_part, use_toc=not args.no_toc,
                     toc_level=args.toc_level, clean=not args.no_clean,
@@ -191,6 +210,12 @@ def preview(args, first_page: int, last_page: int | None,
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse arguments and dispatch. Returns a process exit code.
+
+    Returning rather than calling sys.exit() keeps it callable from tests and
+    from the installed console script alike.
+    """
+
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -217,11 +242,13 @@ def main(argv: list[str] | None = None) -> int:
 
 def run(args, first_page: int, last_page: int | None,
         wanted: set[int] | None = None) -> int:
+    """Do the conversion and report progress as it goes."""
     from tqdm import tqdm
 
     state: dict = {"bar": None, "n": 0}
 
     def on_event(kind: str, payload: dict) -> None:
+        """Translate conversion events into terminal output."""
         if kind == "book":
             book = payload["book"]
             hours, minutes = divmod(round(book.est_minutes), 60)

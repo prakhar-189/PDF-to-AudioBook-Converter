@@ -32,6 +32,7 @@ MIN_CALIBRATION_WORDS = 1500
 
 def audio_seconds(words: int, rate_pct: float = 0.0) -> float:
     """How long the finished recording will play for."""
+
     base = words / WORDS_PER_MINUTE * 60.0
     return base / (1.0 + rate_pct / 100.0)
 
@@ -52,6 +53,7 @@ def observed_speedup(manifest: dict, engine: str | None = None,
 
     Returns None until enough has been converted to be worth trusting.
     """
+
     words = 0
     audio = 0.0
     build = 0.0

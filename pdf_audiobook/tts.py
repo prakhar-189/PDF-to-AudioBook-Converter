@@ -33,10 +33,12 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|(?<=[.!?][\"')\]])\s+")
 
 def chunk_text(text: str, max_chars: int = DEFAULT_CHUNK_CHARS) -> list[str]:
     """Split text into TTS-sized pieces, never mid-sentence."""
+
     chunks: list[str] = []
     buf = ""
 
     def flush() -> None:
+        """Emit whatever has accumulated and start a fresh chunk."""
         nonlocal buf
         if buf.strip():
             chunks.append(buf.strip())
@@ -74,7 +76,12 @@ def chunk_text(text: str, max_chars: int = DEFAULT_CHUNK_CHARS) -> list[str]:
 
 
 class TTSError(RuntimeError):
-    pass
+    """Synthesis failed in a way the caller should show the user.
+
+    Raised for exhausted retries, an engine that produced no audio, and an
+    offline voice that is not installed - all things a person can act on,
+    unlike an internal traceback.
+    """
 
 
 # --------------------------------------------------------------------------
@@ -112,23 +119,33 @@ class AdaptiveLimiter:
     """
 
     def __init__(self, limit: int, minimum: int = 1) -> None:
+        """`limit` permits to start with, never shrinking below `minimum`."""
         self.limit = max(1, limit)
         self.minimum = minimum
         self._sem = asyncio.Semaphore(self.limit)
         self._retired: list = []
 
     async def __aenter__(self) -> AdaptiveLimiter:
+        """Take a permit, waiting if every one is in use."""
         await self._sem.acquire()
         return self
 
     async def __aexit__(self, *exc_info) -> None:
+        """Give the permit back. Retired permits are never released here."""
         self._sem.release()
 
     @property
     def active_limit(self) -> int:
+        """Permits still in circulation, after any retired by back-off."""
         return self.limit - len(self._retired)
 
     async def back_off(self) -> None:
+        """Permanently give up one worker, in response to a refusal.
+
+        Permanent on purpose. A temporary pause would return to the same rate
+        that was just refused and earn another refusal; this converges on a
+        rate the service will actually tolerate.
+        """
         if self.active_limit <= self.minimum:
             return
         # Holding a permit forever is how an asyncio.Semaphore gets smaller.
@@ -145,6 +162,12 @@ class EdgeEngine:
     def __init__(self, voice: str = "en-US-AriaNeural", rate: str = "+0%",
                  pitch: str = "+0Hz", volume: str = "+0%", retries: int = 4,
                  concurrency: int = DEFAULT_CONCURRENCY) -> None:
+        """Rate, pitch and volume accept "10", "+10%" or "+10" alike.
+
+        `concurrency` is clamped to MAX_CONCURRENCY: this is a free shared
+        service, and asking for forty parallel connections gets you refused,
+        not served faster.
+        """
         self.voice = voice
         self.rate = _as_signed(rate, "%")
         self.pitch = _as_signed(pitch, "Hz")
@@ -154,6 +177,11 @@ class EdgeEngine:
 
     @staticmethod
     def list_voices(language: str | None = None) -> list[dict]:
+        """The 300+ neural voices, optionally filtered by locale prefix.
+
+        A network call. `language` matches the start of the locale, so "en"
+        gives every English variant and "en-IN" only Indian English.
+        """
         import edge_tts
 
         voices = asyncio.run(edge_tts.list_voices())
@@ -209,10 +237,12 @@ class EdgeEngine:
 
     async def _run(self, chunks: list[str], out_path: Path,
                    on_progress: ProgressFn | None) -> None:
+        """Synthesise every chunk and write them out in the original order."""
         limiter = AdaptiveLimiter(self.concurrency)
         completed = 0
 
         async def one(text: str) -> bytes:
+            """One chunk, counting it towards progress as it lands."""
             nonlocal completed
             data = await self._synth_chunk(text, limiter)
             completed += 1
@@ -231,6 +261,7 @@ class EdgeEngine:
 
     def synthesize(self, text: str, out_path: Path,
                    on_progress: ProgressFn | None = None) -> Path:
+        """Speak `text` into `out_path` as MP3. Blocking; drives its own loop."""
         chunks = chunk_text(text)
         if not chunks:
             raise TTSError("Nothing to speak.")
@@ -240,6 +271,7 @@ class EdgeEngine:
 
 def _as_signed(value: str | int | float, unit: str) -> str:
     """edge-tts wants '+10%' / '-5Hz'; accept 10, '10', '+10%' and friends."""
+
     text = str(value).strip()
     text = text.removesuffix(unit) if text.endswith(unit) else text.rstrip("%Hz")
     if not text or text in "+-":
@@ -260,6 +292,11 @@ class OfflineEngine:
 
     def __init__(self, voice: str | None = None, rate: str | int = "+0%",
                  **_ignored) -> None:
+        """`**_ignored` swallows pitch and volume, which pyttsx3 has no use for.
+
+        Both engines are constructed from the same argument dict by
+        `get_engine()`, so this one has to tolerate options it cannot honour.
+        """
         self.voice = voice
         # Reuse the same "+15%" vocabulary as the neural engine and convert it
         # to pyttsx3's words-per-minute.
@@ -267,6 +304,11 @@ class OfflineEngine:
 
     @staticmethod
     def list_voices(language: str | None = None) -> list[dict]:
+        """Voices installed on this machine, shaped like the neural list.
+
+        Same dict keys as EdgeEngine.list_voices() so callers can show either
+        engine without special-casing.
+        """
         import pyttsx3
 
         engine = pyttsx3.init()
@@ -284,6 +326,11 @@ class OfflineEngine:
         return voices
 
     def _new_engine(self):
+        """A fresh pyttsx3 engine per chunk.
+
+        Reusing one across chunks wedges after the first `runAndWait()` on
+        several platforms, so the cost of rebuilding it is paid deliberately.
+        """
         import pyttsx3
 
         engine = pyttsx3.init()
@@ -307,6 +354,11 @@ class OfflineEngine:
 
     def synthesize(self, text: str, out_path: Path,
                    on_progress: ProgressFn | None = None) -> Path:
+        """Speak `text` into `out_path` as WAV, entirely offline.
+
+        Larger chunks than the neural engine: there is no network round trip
+        to lose, so the only reason to split at all is memory.
+        """
         chunks = chunk_text(text, max_chars=6000)
         if not chunks:
             raise TTSError("Nothing to speak.")
@@ -364,6 +416,12 @@ def concat_files(parts: list[Path], out_path: Path) -> Path:
 
 
 def get_engine(name: str, **kwargs):
+    """Build an engine by name ("edge" or "offline").
+
+    The single seam the rest of the codebase goes through to get a voice,
+    which is what lets the tests swap in a stub that never leaves the machine.
+    """
+
     engines = {"edge": EdgeEngine, "offline": OfflineEngine}
     if name not in engines:
         raise ValueError(f"Unknown engine {name!r}. Choose from: {', '.join(engines)}")

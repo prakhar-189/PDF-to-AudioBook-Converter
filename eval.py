@@ -59,6 +59,12 @@ HYPHENATED = [("under", "standing"), ("harbour", "master"), ("extra", "ordinary"
 
 @dataclass
 class Truth:
+    """The text put into a generated PDF, kept so we can score what comes out.
+
+    The whole harness rests on this. Because each document is generated rather
+    than found, the exact body text is known, and "did extraction work" becomes
+    a measurable comparison instead of a judgement call.
+    """
     """What the PDF really says, recorded as it is written."""
 
     name: str
@@ -69,10 +75,13 @@ class Truth:
 
     @property
     def text(self) -> str:
+        """The full expected body text, as one string."""
         return " ".join(self.body)
 
 
 def _draw(page, lines, top=90, size=11, leading=16):
+    """Write lines onto a page at fixed leading, imitating typeset prose."""
+
     y = top
     for line in lines:
         page.insert_text((60, y), line, fontsize=size)
@@ -82,6 +91,7 @@ def _draw(page, lines, top=90, size=11, leading=16):
 
 def build_novel(path: Path) -> Truth:
     """A normal book: contents page, running heads, page numbers, 3 chapters."""
+
     truth = Truth("novel with table of contents")
     doc = pymupdf.open()
     titles = ["Chapter One", "Chapter Two", "Chapter Three"]
@@ -126,6 +136,7 @@ def build_novel(path: Path) -> Truth:
 
 def build_paper(path: Path) -> Truth:
     """An academic-looking PDF: citations, footnote markers, no contents page."""
+
     truth = Truth("paper with citations, no outline")
     truth.noise = ["Journal of Imaginary Studies, Vol. 12"]
     doc = pymupdf.open()
@@ -149,6 +160,7 @@ def build_paper(path: Path) -> Truth:
 
 def build_plain(path: Path) -> Truth:
     """No outline, no headers, no page numbers - just text on pages."""
+
     truth = Truth("plain pages, nothing to strip")
     doc = pymupdf.open()
     for _ in range(3):
@@ -187,12 +199,20 @@ def compare(expected: str, actual: str) -> tuple[float, float, int, int]:
 
 @dataclass
 class Check:
+    """One pass/fail assertion, with the label printed in the report."""
+
     name: str
     passed: bool
     detail: str = ""
 
 
 def evaluate_document(builder, tmp: Path) -> tuple[Truth, float, list[Check]]:
+    """Build one PDF, extract it, and score the result against the truth.
+
+    Returns the truth, a word-level F1, and the individual checks - so the
+    report shows both a number and which specific defences held.
+    """
+
     path = tmp / f"{builder.__name__}.pdf"
     truth = builder(path)
     book = load_pdf(path)
@@ -241,6 +261,7 @@ SAMPLE_RATES = [44100, 48000, 32000, 0]
 
 def mp3_duration(path: Path) -> float:
     """Seconds of audio, by walking the MPEG frame headers. No ffmpeg needed."""
+
     data = path.read_bytes()
     i, total = 0, 0.0
     while i < len(data) - 4:
@@ -279,6 +300,7 @@ def evaluate_audio(tmp: Path) -> list[Check]:
     A silently dropped chunk is the failure that matters here, and it shows up
     as audio that is too short for the number of words it should contain.
     """
+
     path = tmp / "audio_case.pdf"
     build_plain(path)
     out = tmp / "audio_out"
@@ -318,14 +340,17 @@ def evaluate_concurrency() -> list[Check]:
     chunks finish FIRST, so an ordering bug is certain to show rather than
     depending on timing luck. No network, so it is safe in CI.
     """
+
     checks: list[Check] = []
     chunks = [f"chunk-{i:03d}|" for i in range(37)]
     expected = "".join(chunks).encode()
 
     def assemble(concurrency: int, delay) -> bytes:
+        """Reassemble chunks under a given concurrency and timing pattern."""
         engine = EdgeEngine(concurrency=concurrency)
 
         async def stand_in(text, limiter):
+            """A synthesiser returning known bytes after a chosen delay."""
             await asyncio.sleep(delay(text))
             return text.encode()
 
@@ -335,6 +360,7 @@ def evaluate_concurrency() -> list[Check]:
         return out.read_bytes()
 
     def reversed_order(text):
+        """Timing where later chunks finish first - the pathological case."""
         # Later chunks finish first, so a naive append-as-you-go would reorder audio.
         return 0.002 * (len(chunks) - chunks.index(text))
 
@@ -346,6 +372,7 @@ def evaluate_concurrency() -> list[Check]:
                         assemble(1, lambda t: 0.0) == expected))
 
     class Refused(Exception):
+        """A stand-in for the service refusing us, to drive back-off."""
         status = 429
 
     checks.append(Check("rate limit seen via status attribute", is_rate_limited(Refused())))
@@ -355,6 +382,7 @@ def evaluate_concurrency() -> list[Check]:
                         not is_rate_limited(Exception("connection reset"))))
 
     async def shrink():
+        """Drive the limiter with refusals and report the surviving width."""
         limiter = AdaptiveLimiter(4)
         await limiter.back_off()
         await limiter.back_off()
@@ -374,6 +402,11 @@ def evaluate_concurrency() -> list[Check]:
 # --------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the harness and return a process exit code (0 pass, 1 fail).
+
+    Non-zero is what makes this a CI gate rather than a report.
+    """
+
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--audio", action="store_true",
                         help="also generate real audio and check it (needs internet)")

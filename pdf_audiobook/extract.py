@@ -35,6 +35,7 @@ class Chapter:
 
     @property
     def word_count(self) -> int:
+        """Words in this chapter. Drives both time estimates and resume."""
         return len(self.text.split())
 
     @property
@@ -45,6 +46,14 @@ class Chapter:
 
 @dataclass
 class Book:
+    """A whole PDF, split into the chapters that will become audio files.
+
+    `used_toc` records *how* the split was decided - from the PDF's own
+    outline, or by falling back to fixed page counts. The CLI and the web UI
+    both surface that, because "no contents page was found" explains an
+    otherwise baffling set of chapter titles.
+    """
+
     title: str
     author: str
     page_count: int
@@ -53,10 +62,12 @@ class Book:
 
     @property
     def word_count(self) -> int:
+        """Words across every chapter."""
         return sum(c.word_count for c in self.chapters)
 
     @property
     def est_minutes(self) -> float:
+        """Total listening time for the finished book."""
         return sum(c.est_minutes for c in self.chapters)
 
 
@@ -85,6 +96,12 @@ SENTENCE_END_RE = re.compile(r"[.!?:;\"')\]]$")
 
 
 def _normalise(text: str) -> str:
+    """Fold typographic characters down to what a speech engine can read.
+
+    Ligatures, curly quotes and dashes are how a PDF renders text beautifully
+    and how a TTS tokeniser gets confused. An em dash in particular is silence
+    unless it becomes " - ".
+    """
     for src, dst in LIGATURES.items():
         text = text.replace(src, dst)
     for src, dst in PUNCTUATION.items():
@@ -123,6 +140,7 @@ def margin_lines(page, band: float = MARGIN_BAND) -> list[str]:
     "the first couple of lines of the text stream" instead would delete real
     sentences that happen to land at a page edge on several pages.
     """
+
     rect = page.rect
     top = rect.y0 + rect.height * band
     bottom = rect.y1 - rect.height * band
@@ -143,6 +161,7 @@ def find_running_heads(pages: list[list[str]]) -> set[str]:
     Three signals have to agree before text is discarded: it sits in a margin,
     it looks like a label rather than prose, and it recurs.
     """
+
     counts: Counter[str] = Counter()
     for lines in pages:
         for line in set(lines):
@@ -180,6 +199,17 @@ def _reflow(lines: list[str]) -> str:
 
 
 def clean_page(text: str, running_heads: set[str], drop_urls: bool = True) -> str:
+    """One page of raw PDF text -> speakable prose.
+
+    The order matters. De-hyphenation happens before lines are split apart,
+    because the evidence for it (a hyphen at end of line) only exists while
+    the line breaks are still there. Reflow happens after the furniture is
+    dropped, so a removed header does not leave a hole mid-paragraph.
+
+    `running_heads` holds *fingerprints* from `find_running_heads()`, not
+    literal lines, so "Page 12" and "Page 87" match the same entry.
+    """
+
     text = _normalise(text)
     text = HYPHEN_BREAK_RE.sub(r"\1\2", text)
 
@@ -214,6 +244,7 @@ def clean_page(text: str, running_heads: set[str], drop_urls: bool = True) -> st
 
 def _chapters_from_toc(doc: fitz.Document, max_level: int = 1) -> list[Chapter]:
     """Use the PDF's own outline as the chapter list, when it has one."""
+
     toc = doc.get_toc(simple=True)
     if not toc:
         return []
@@ -268,6 +299,12 @@ def _pick_toc_chapters(doc: fitz.Document, level: str | int = "auto") -> list[Ch
 
 
 def _chapters_by_pages(pages_per_part: int, first: int, last: int) -> list[Chapter]:
+    """Split into evenly sized parts, for a PDF with no usable outline.
+
+    The fallback, and the only option for a scanned-then-OCRed book. Titles
+    carry the page range so a listener can still find their place.
+    """
+
     chapters: list[Chapter] = []
     for start in range(first, last, pages_per_part):
         end = min(start + pages_per_part, last)
@@ -293,6 +330,7 @@ def load_pdf(
     `first_page` / `last_page` are 1-based and inclusive, matching what a
     reader sees in a PDF viewer.
     """
+
     doc = fitz.open(path)
     try:
         if doc.needs_pass and not doc.authenticate(password or ""):

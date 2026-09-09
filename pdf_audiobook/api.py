@@ -80,6 +80,11 @@ JOBS_RUNNING = Gauge(
 
 
 class JobStatus(str, Enum):
+    """Where a conversion is. `str` mixin so it serialises as its own name.
+
+    `succeeded` and `failed` are terminal; a client can stop polling on either.
+    """
+
     queued = "queued"
     running = "running"
     succeeded = "succeeded"
@@ -88,6 +93,14 @@ class JobStatus(str, Enum):
 
 @dataclass
 class Job:
+    """Server-side state for one conversion.
+
+    Mutated in place by the worker thread and read by request handlers. The
+    fields are plain and independently assigned, so a torn read shows stale
+    progress rather than anything incoherent - which is why no lock is held
+    across the conversion itself.
+    """
+
     id: str
     filename: str
     status: JobStatus = JobStatus.queued
@@ -108,6 +121,7 @@ class Job:
 
     @property
     def progress(self) -> float:
+        """Fraction complete, 0.0-1.0. Zero until the chapter count is known."""
         if not self.chapters_total:
             return 0.0
         return round(self.chapters_done / self.chapters_total, 4)
@@ -123,22 +137,27 @@ class JobRegistry:
     """
 
     def __init__(self) -> None:
+        """Start empty. One lock guards every mutation of the dict."""
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
 
     def add(self, job: Job) -> None:
+        """Register a new job."""
         with self._lock:
             self._jobs[job.id] = job
 
     def get(self, job_id: str) -> Optional[Job]:
+        """Look up a job, or None if the id is unknown."""
         with self._lock:
             return self._jobs.get(job_id)
 
     def all(self) -> list[Job]:
+        """Every job, newest first."""
         with self._lock:
             return sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)
 
     def remove(self, job_id: str) -> Optional[Job]:
+        """Forget a job and return it, so the caller can clean up its files."""
         with self._lock:
             return self._jobs.pop(job_id, None)
 
@@ -153,6 +172,8 @@ executor = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="conve
 
 
 class ChapterOut(BaseModel):
+    """One chapter in an /estimate response."""
+
     index: int
     title: str
     words: int
@@ -160,6 +181,12 @@ class ChapterOut(BaseModel):
 
 
 class EstimateOut(BaseModel):
+    """What /estimate returns: the shape of the book and what it will cost.
+
+    `summary` is the same sentence the CLI and web UI show, so all three
+    front ends quote identical wording for the same book.
+    """
+
     title: str
     author: str
     pages: int
@@ -172,6 +199,8 @@ class EstimateOut(BaseModel):
 
 
 class JobOut(BaseModel):
+    """The public view of a Job - what polling clients actually receive."""
+
     id: str
     filename: str
     status: JobStatus
@@ -185,12 +214,20 @@ class JobOut(BaseModel):
 
 
 class HealthOut(BaseModel):
+    """Liveness payload for /healthz and the container health check."""
+
     status: str
     version: str
     jobs_running: int
 
 
 def _as_out(job: Job) -> JobOut:
+    """Project internal Job state onto the wire model.
+
+    Elapsed time is computed here rather than stored, so a running job reports
+    time so far and a finished one reports its final duration.
+    """
+
     seconds = None
     if job.started_at:
         seconds = round((job.finished_at or time.time()) - job.started_at, 2)
@@ -221,18 +258,22 @@ app = FastAPI(
 
 @app.get("/healthz", response_model=HealthOut, tags=["ops"])
 def healthz() -> HealthOut:
+    """Liveness plus a count of conversions currently running."""
+
     running = sum(1 for j in registry.all() if j.status is JobStatus.running)
     return HealthOut(status="ok", version=__version__, jobs_running=running)
 
 
 @app.get("/metrics", include_in_schema=False, tags=["ops"])
 def metrics() -> Response:
+    """Prometheus exposition. Scrape target for throughput and failure rate."""
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/voices", tags=["voices"])
 def voices(language: Optional[str] = None, engine: str = "edge") -> list[dict]:
     """Available narrators, optionally filtered by language prefix (``en-IN``)."""
+
     try:
         return get_engine(engine).list_voices(language)
     except ValueError as exc:  # unknown engine name
@@ -245,6 +286,7 @@ def voices(language: Optional[str] = None, engine: str = "edge") -> list[dict]:
 
 def _save_upload(upload: UploadFile, into: Path) -> Path:
     """Stream an upload to disk, refusing anything oversized or not a PDF."""
+
     name = Path(upload.filename or "book.pdf").name
     if not name.lower().endswith(".pdf"):
         raise HTTPException(status_code=415, detail="Only PDF uploads are accepted.")
@@ -324,6 +366,7 @@ def _run_job(job: Job, pdf: Path, options: dict) -> None:
     JOBS_RUNNING.inc()
 
     def on_event(kind: str, payload: dict) -> None:
+        """Translate conversion events into job progress and metrics."""
         if kind == "book":
             job.chapters_total = len(payload.get("selected") or [])
         elif kind == "chapter":
@@ -408,11 +451,14 @@ def create_job(
 
 @app.get("/jobs", response_model=list[JobOut], tags=["convert"])
 def list_jobs() -> list[JobOut]:
+    """Every job this process knows about, newest first."""
     return [_as_out(j) for j in registry.all()]
 
 
 @app.get("/jobs/{job_id}", response_model=JobOut, tags=["convert"])
 def get_job(job_id: str) -> JobOut:
+    """One job's current state. The endpoint clients poll."""
+
     job = registry.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="No such job.")
@@ -422,6 +468,7 @@ def get_job(job_id: str) -> JobOut:
 @app.get("/jobs/{job_id}/download", tags=["convert"])
 def download(job_id: str) -> FileResponse:
     """The finished audiobook as a zip: one MP3 per chapter plus the playlist."""
+
     job = registry.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="No such job.")
@@ -439,6 +486,7 @@ def download(job_id: str) -> FileResponse:
 @app.delete("/jobs/{job_id}", status_code=204, tags=["convert"])
 def delete_job(job_id: str, background: BackgroundTasks) -> Response:
     """Forget a job and delete its audio."""
+
     job = registry.remove(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="No such job.")

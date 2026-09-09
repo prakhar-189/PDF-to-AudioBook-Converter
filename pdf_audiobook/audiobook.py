@@ -22,6 +22,13 @@ MANIFEST_NAME = ".audiobook.json"
 
 @dataclass
 class Result:
+    """What one `convert()` call did, and where the book stands overall.
+
+    The distinction that matters: `files` is this run, while `completed` and
+    `total` describe every run so far. Converting a 384-chapter boxed set five
+    chapters at a time needs both - "5 done now" and "40 of 384 overall".
+    """
+
     out_dir: Path
     book: Book
     files: list[Path]          # what this run produced or skipped
@@ -33,11 +40,13 @@ class Result:
 
     @property
     def remaining(self) -> int:
+        """Chapters still to convert. Clamped: never reports a negative."""
         return max(self.total - self.completed, 0)
 
 
 def safe_name(text: str, limit: int = 60) -> str:
     """Turn a chapter title into something Windows will accept as a filename."""
+
     text = re.sub(r"[<>:\"/\\|?*\x00-\x1f]", "", text).strip(" .")
     text = re.sub(r"\s+", " ", text)
     if len(text) > limit:
@@ -46,15 +55,22 @@ def safe_name(text: str, limit: int = 60) -> str:
 
 
 def default_out_dir(pdf_path: Path) -> Path:
+    """Output folder beside the PDF: "Book.pdf" -> "Book (audiobook)/".
+
+    Next to the source rather than in a central library, so the audio is
+    findable by whoever went looking for the book.
+    """
     return pdf_path.parent / f"{pdf_path.stem} (audiobook)"
 
 
 def _chapter_filename(ch: Chapter, ext: str) -> str:
+    """Zero-padded index first, so any player sorts chapters correctly."""
     return f"{ch.index:02d} - {safe_name(ch.title)}.{ext}"
 
 
 def load_manifest(out_dir: Path) -> dict:
     """Read the record of what has already been converted in this folder."""
+
     path = Path(out_dir) / MANIFEST_NAME
     if path.exists():
         try:
@@ -71,6 +87,7 @@ def is_finished(ch: Chapter, manifest: dict, out_dir: Path, ext: str,
     Changing the voice or the page range changes the answer, so a rerun
     correctly redoes work that is no longer current.
     """
+
     record = manifest.get("chapters", {}).get(str(ch.index))
     if not record:
         return False
@@ -112,6 +129,7 @@ def convert(
     of the ones still outstanding. Together they make it practical to work
     through a long book a chapter at a time.
     """
+
     started = time.time()
     pdf_path = Path(pdf_path)
     if not pdf_path.exists():
@@ -121,6 +139,7 @@ def convert(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     def emit(kind: str, **payload) -> None:
+        """Report progress, if anyone is listening. Never fails the run."""
         if on_event:
             on_event(kind, payload)
 
@@ -143,6 +162,7 @@ def convert(
     manifest["source"] = str(pdf_path)
 
     def done_already(ch: Chapter) -> bool:
+        """True when this chapter can be skipped on this run."""
         return resume and is_finished(ch, manifest, out_dir, tts.ext, voice)
 
     selected = list(book.chapters)
@@ -220,6 +240,7 @@ def _finished_chapters(book: Book, manifest: dict, out_dir: Path, ext: str,
     deliberately not counted: it will be regenerated, so calling it done would
     overstate progress and would poison a merged file.
     """
+
     pairs = []
     for ch in book.chapters:
         if is_finished(ch, manifest, out_dir, ext, voice):
@@ -230,6 +251,7 @@ def _finished_chapters(book: Book, manifest: dict, out_dir: Path, ext: str,
 def _write_playlist(out_dir: Path, title: str,
                     chapters: list[tuple[Chapter, Path]]) -> None:
     """An .m3u so any player queues the finished chapters in the right order."""
+
     lines = ["#EXTM3U", f"#PLAYLIST:{title}"]
     for ch, path in chapters:
         lines.append(f"#EXTINF:{int(ch.est_minutes * 60)},{ch.title}")
